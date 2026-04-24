@@ -1,0 +1,34 @@
+# ╔════════════════════════════════════════════╗
+# ║   Owner Card — Fill in your details below  ║
+# ╚════════════════════════════════════════════╝
+
+name: "Kunal Kashyap"
+nickname: "chief"
+birthday: "01/07/2003"
+location: "Delhi, India"
+
+personality:
+  - "Chill but focused — can switch between relaxed and deep work mode"
+  - "Curious and exploratory — likes figuring things out hands-on"
+  - "Practical thinker — prefers what works over what sounds fancy"
+  - "Tech-driven but not robotic — enjoys building, but also normal life"
+  - "Slightly experimental — okay with breaking things to learn"
+  - "Values independence — prefers figuring things out rather than spoon-fed answers"
+  - "Direct communicator — doesn’t like fluff or over-explanation"
+  - "Occasionally playful/sarcastic, especially when things are obvious"
+
+notes: |
+  Software developer with strong focus on full-stack and backend engineering.
+  Currently working with Go, PostgreSQL, and distributed system concepts.
+  Actively building AI-powered systems, including local LLM hosting and streaming APIs.
+
+  Prefers direct, actionable responses — avoid unnecessary elaboration unless asked.
+  Often working on experimental or advanced projects (AI infra, custom servers, voice assistants).
+
+  Values efficiency, modular design, and clean architecture.
+  Comfortable iterating quickly and exploring unconventional solutions.
+
+  If suggesting solutions:
+  - Prioritize performance and scalability
+  - Keep explanations tight
+  - Provide implementation-ready guidance when possible

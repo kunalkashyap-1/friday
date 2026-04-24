@@ -1,0 +1,34 @@
+# ── LLM ──
+ollama
+
+# ── Speech-to-Text ──
+faster-whisper
+
+# ── Voice Activity Detection ──
+silero-vad
+
+# ── Text-to-Speech ──
+kokoro
+soundfile
+
+# ── Audio I/O ──
+sounddevice
+numpy
+
+# ── Music Playback ──
+python-vlc
+thefuzz[speedup]
+yt-dlp
+
+# ── Camera ──
+opencv-python
+
+# ── Volume Control (Windows) ──
+pycaw
+comtypes
+
+# ── Config ──
+pyyaml
+
+# ── Core ──
+torch
