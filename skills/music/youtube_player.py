@@ -8,6 +8,7 @@ then passes it to VLC for playback.
 import vlc
 import yt_dlp
 from skills.music.player_base import MusicPlayer
+from ui import print_system, print_error
 
 
 class YouTubePlayer(MusicPlayer):
@@ -41,7 +42,7 @@ class YouTubePlayer(MusicPlayer):
                 elif 'url' in info:
                     return info
         except Exception as e:
-            print(f"  [YOUTUBE] yt-dlp error: {e}")
+            print_error(f"YOUTUBE yt-dlp error: {e}")
         
         return None
 
@@ -49,7 +50,7 @@ class YouTubePlayer(MusicPlayer):
         if not query:
             return "Please tell me what to play on YouTube."
         
-        print(f"  [YOUTUBE] Searching for: {query}...")
+        print_system(f"[YOUTUBE] Searching for: {query}...")
         info = self._extract_stream(query)
         
         if not info or 'url' not in info:
@@ -88,6 +89,14 @@ class YouTubePlayer(MusicPlayer):
         level = max(0, min(100, level))
         self._player.audio_set_volume(level)
         return f"Player volume set to {level}%."
+
+    def get_volume(self) -> int:
+        """Return the current VLC player volume (0-100)."""
+        return self._player.audio_get_volume()
+
+    def is_playing(self) -> bool:
+        """Return True if VLC is currently playing audio."""
+        return bool(self._player.is_playing())
 
     def now_playing(self) -> str:
         if not self._player.is_playing() and not self._current_title:

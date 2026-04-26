@@ -10,11 +10,15 @@ class ClockSkill(BaseSkill):
     name = "clock"
     description = "Get the current time or date."
     schema = {
-        "query": {
-            "type": "string",
-            "enum": ["time", "date", "datetime"],
-            "description": "What to retrieve: 'time', 'date', or 'datetime'."
-        }
+        "type": "object",
+        "properties": {
+            "query": {
+                "type": "string",
+                "enum": ["time", "date", "datetime"],
+                "description": "What to retrieve: 'time', 'date', or 'datetime'.",
+            }
+        },
+        "required": ["query"],
     }
 
     def execute(self, params: dict) -> str:

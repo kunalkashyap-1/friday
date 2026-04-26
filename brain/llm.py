@@ -1,13 +1,12 @@
 """
-brain/llm.py — Ollama Gemma 4 wrapper.
+brain/llm.py — Ollama LLM wrapper with native tool calling.
 
-Builds the system prompt (personality, skill schemas, owner card, datetime),
-sends rolling memory + user query to Gemma 4 via Ollama, and returns
-the raw LLM output string.
+Builds the system prompt (personality, owner card, datetime),
+sends rolling memory + user query + tool definitions to Ollama,
+and returns the raw response object for the orchestrator to inspect.
 """
 
 import datetime
-import base64
 import yaml
 import os
 from pathlib import Path
@@ -17,115 +16,44 @@ from ollama import chat as ollama_chat
 # ── System prompt template ────────────────────────────────────────
 SYSTEM_PROMPT_TEMPLATE = """\
 You are Friday — a personal AI assistant.
+Current date/time: {datetime_now}
+Owner info: {owner_card}
+
+CRITICAL INSTRUCTIONS:
+1. You have access to tools. YOU MUST USE A TOOL if it can answer the user's request.
+2. DO NOT answer from memory if a tool exists for the task.
+3. If no tool applies, reply conversationally.
+4. Under no circumstances should you refuse to use a tool when it can be used.
+5. If a tool fails, try again or find an alternative tool.
+6. Always respond to the user after using a tool, even if the tool provides the answer. Use your own words and context to respond.
+
+TOOL EXAMPLES:
+- "What time is it?" -> Use the 'clock' tool with query='time'.
+- "Set a 5 minute timer" -> Use the 'timer' tool with command='set', duration_seconds=300.
+- "Remind me to check the oven at 18:00" -> Use the 'reminder' tool with command='set', time='18:00'.
+- "Roll a d20" -> Use the 'dice' tool with type='d20'.
+- "What do you see?" -> Use the 'camera' tool with command='look'.
+- "Volume down" -> Use the 'volume' tool with command='down'.
+- "Play some jazz" -> Use the 'music' tool with command='play', query='jazz'.
+- "What's the latest news on AI?" -> Use the 'web_search' tool with query='latest news on AI'.
 
 PERSONALITY:
-
-* Funny, witty, dry British humour
-* Always reply in ONE concise sentence UNLESS using a tool
-* Warm but not sycophantic — you're a mate, not a butler
-* Refer to the user by their name or nickname if known
-
-OWNER INFORMATION:
-{owner_card}
-
-CURRENT DATE/TIME: {datetime_now}
-
-CORE BEHAVIOUR (CRITICAL):
-You are a TOOL-FIRST agent.
-
-You MUST ALWAYS check if a tool can be used BEFORE replying.
-
-If ANY tool is even remotely applicable → you MUST call the tool.
-
-You are NOT allowed to answer directly if a tool could be used.
-
----
-
-OUTPUT PROTOCOL (STRICT):
-
-If a tool is used:
-
-* Output ONLY the action line
-* NO extra text before or after
-* NO explanation
-
-Format EXACTLY:
-ACTION::skill_name::{{json_args}}
-
-Examples: 
-ACTION::clock::{{"query": "time"}}
-ACTION::music::{{"command": "play", "query": "radiohead"}}
-ACTION::timer::{{"duration_seconds": 300, "label": "tea"}}
-ACTION::reminder::{{"time": "14:30", "message": "call mum"}}
-ACTION::camera::{{"command": "look", "question": "what is this?"}}
-ACTION::dice::{{"type": "d20"}}
-ACTION::volume::{{"command": "set", "level": 50}}
-
----
-
-If and ONLY IF no tool is applicable:
-
-* Reply in ONE short sentence
-
----
-
-DECISION RULES (VERY IMPORTANT):
-
-1. If the request involves:
-
-   * time, date, timers
-   * music, media
-   * reminders, scheduling
-   * calculations
-   * randomness (dice, coin, etc.)
-   * environment interaction
-     → ALWAYS USE A TOOL
-
-2. If unsure whether to use a tool:
-   → USE THE TOOL
-
-3. DO NOT default to conversation if a tool exists
-
-4. Conversational replies are ONLY allowed when:
-
-   * the request is purely opinion, joke, or casual chat
-   * AND no tool can possibly apply
-
----
-
-ANTI-FAILURE RULES:
-
-* NEVER skip a tool if it exists
-* NEVER output both text and ACTION
-* NEVER explain the action
-* NEVER hallucinate tools
-* NEVER ignore available skills
-
----
-
-MULTI-STEP:
-
-If multiple tools are needed:
-
-* Output multiple ACTION lines
-* One per line
-* No text between them
-
----
-
-AVAILABLE SKILLS:
-{skill_docs}
+* Funny, witty, dry British humour.
+* Always reply in ONE concise sentence.
+* You're a mate, not a butler.
 """
 
 
 class LLM:
-    """Wrapper around Ollama Gemma 4 for Friday's brain."""
+    """Wrapper around Ollama with native tool-calling support."""
 
     def __init__(self, model: str = "qwen3.5:4b", host: str = "http://localhost:11434",
-                 temperature: float = 0.7, owner_card_path: str | None = None):
+                 temperature: float = 0.3, num_predict: int = 200, owner_card_path: str | None = None):
         self.model = model
         self.host = host
         self.temperature = temperature
+        self.num_predict = num_predict
+        self.tools: list[dict] = []
 
         # Load owner card
         self.owner_card = ""
@@ -140,33 +68,33 @@ class LLM:
         else:
             self.owner_card = "No owner info provided yet."
 
-        # Skill docs — injected later by orchestrator
-        self.skill_docs = "No skills loaded."
-
-    def set_skill_docs(self, docs: str):
-        """Inject skill documentation into the system prompt."""
-        self.skill_docs = docs
+    def set_tools(self, tools: list[dict]):
+        """Inject the Ollama tool definitions (built from skill registry)."""
+        # print(f"  [DEBUG LLM] tools={repr(tools)}")
+        self.tools = tools
 
     def _build_system_prompt(self) -> str:
         """Build the full system prompt with live datetime."""
         return SYSTEM_PROMPT_TEMPLATE.format(
             owner_card=self.owner_card,
             datetime_now=datetime.datetime.now().strftime("%A, %d %B %Y, %H:%M:%S"),
-            skill_docs=self.skill_docs,
         )
 
     def chat(self, history: list[dict], user_message: str,
-             image_b64: str | None = None) -> str:
+             image_b64: str | None = None, use_tools: bool = True):
         """
-        Send a message to Gemma 4 and get a response.
+        Send a message to Ollama and get a response.
 
         Args:
             history: List of {"role": ..., "content": ...} dicts.
             user_message: The latest user input.
             image_b64: Optional base64-encoded JPEG for vision queries.
+            use_tools: Whether to pass tool definitions (False for plain
+                       vision/follow-up calls).
 
         Returns:
-            Raw LLM output string (may contain ACTION:: lines).
+            The raw Ollama response message object. The caller can inspect
+            .content for text and .tool_calls for tool invocations.
         """
         messages = [{"role": "system", "content": self._build_system_prompt()}]
         messages.extend(history)
@@ -180,14 +108,40 @@ class LLM:
         # Set OLLAMA_HOST env for the client
         os.environ["OLLAMA_HOST"] = self.host
 
-        response = ollama_chat(
-            model=self.model,
-            messages=messages,
-            think=False,
-            options={"temperature": self.temperature},
-        )
+        kwargs = {
+            "model": self.model,
+            "messages": messages,
+            "options": {"temperature": self.temperature, "num_predict": self.num_predict},
+        }
 
-        return response.message.content.strip()
+        if use_tools and self.tools:
+            kwargs["tools"] = self.tools
+
+        response = ollama_chat(**kwargs, think=False)
+        return response.message
+
+    def chat_with_history(self, messages: list[dict], use_tools: bool = True):
+        """
+        Send a pre-built message list (including tool results) to Ollama.
+
+        Used by the orchestrator for the tool-result feedback loop.
+
+        Returns:
+            The raw Ollama response message object.
+        """
+        os.environ["OLLAMA_HOST"] = self.host
+
+        kwargs = {
+            "model": self.model,
+            "messages": messages,
+            "options": {"temperature": self.temperature},
+        }
+
+        if use_tools and self.tools:
+            kwargs["tools"] = self.tools
+
+        response = ollama_chat(**kwargs, think=False)
+        return response.message
 
     def unload(self):
         """Tell Ollama to unload the model (free GPU memory)."""

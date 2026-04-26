@@ -98,6 +98,14 @@ class VLCPlayer(MusicPlayer):
         self._player.audio_set_volume(level)
         return f"Player volume set to {level}%."
 
+    def get_volume(self) -> int:
+        """Return the current VLC player volume (0-100)."""
+        return self._player.audio_get_volume()
+
+    def is_playing(self) -> bool:
+        """Return True if VLC is currently playing audio."""
+        return bool(self._player.is_playing())
+
     def now_playing(self) -> str:
         if not self._playlist:
             return "Nothing playing."

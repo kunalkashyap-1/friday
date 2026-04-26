@@ -7,25 +7,30 @@ Supports multiple concurrent timers, listing, and cancellation.
 import threading
 import time
 from skills.base import BaseSkill
+from ui import print_system
 
 
 class TimerSkill(BaseSkill):
     name = "timer"
     description = "Set a countdown timer. TTS announcement when it finishes."
     schema = {
-        "duration_seconds": {
-            "type": "integer",
-            "description": "Timer duration in seconds (required for 'set')."
+        "type": "object",
+        "properties": {
+            "duration_seconds": {
+                "type": "integer",
+                "description": "Timer duration in seconds (required for 'set').",
+            },
+            "label": {
+                "type": "string",
+                "description": "A label for the timer, e.g. 'tea', 'eggs'.",
+            },
+            "command": {
+                "type": "string",
+                "enum": ["set", "list", "cancel"],
+                "description": "Action: 'set' (default), 'list', or 'cancel'.",
+            },
         },
-        "label": {
-            "type": "string",
-            "description": "A label for the timer, e.g. 'tea', 'eggs'."
-        },
-        "command": {
-            "type": "string",
-            "enum": ["set", "list", "cancel"],
-            "description": "Action: 'set' (default), 'list', or 'cancel'."
-        }
+        "required": ["command"],
     }
 
     def __init__(self, speaker=None):
@@ -56,7 +61,7 @@ class TimerSkill(BaseSkill):
             with self._lock:
                 self._timers.pop(label, None)
             msg = f"Oi! Your {label} timer is done!"
-            print(f"  [ALARM] {msg}")
+            print_system(f"[ALARM] {msg}")
             if self._speaker:
                 self._speaker.speak(msg)
 

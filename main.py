@@ -7,10 +7,18 @@ Boots the full pipeline:
 Handles the main event loop and "go dark" kill switch.
 """
 
+# ── Suppress noisy third-party warnings ──────────────────────────
+import warnings
+warnings.filterwarnings("ignore", message=".*weight_norm.*is deprecated.*")
+warnings.filterwarnings("ignore", message=".*dropout option adds dropout.*")
+warnings.filterwarnings("ignore", message=".*Defaulting repo_id.*")
+
 import sys
 import yaml
 import threading
+import queue
 from pathlib import Path
+import random
 
 from ear.listener import Listener
 from ear.transcriber import Transcriber
@@ -18,7 +26,8 @@ from brain.memory import Memory
 from brain.llm import LLM
 from brain.orchestrator import Orchestrator
 from voice.speaker import Speaker
-from skills import build_registry, get_skill_docs
+from skills import build_registry, get_ollama_tools
+from ui import console, print_user, print_friday, print_system, print_warning, print_error
 
 
 # ── Banner ────────────────────────────────────────────────────────
@@ -36,13 +45,37 @@ BANNER = r"""
   ║         Say "Friday" or "Hey Friday" to begin          ║
   ╚═══════════════════════════════════════════════════════╝
 """
-
+SIGN_OFFS = [
+    "Going dark. Goodnight.",
+    "Signing off for the night.",
+    "Shutting down. See you tomorrow.",
+    
+    "Alright, I’m off. Sleep well!",
+    "Calling it a night—rest up!",
+    "Time to log off. Catch you later!",
+    
+    "Powering down… dream mode activated.",
+    "Lights out on my end. Goodnight!",
+    "System entering sleep mode",
+    
+    "And so, I fade into the quiet… goodnight.",
+    "The night takes over. I’m gone.",
+    "Curtains closed. Until next time.",
+    
+    "Initiating shutdown sequence. Goodnight.",
+    "All processes halted. See you soon.",
+    "Session terminated. Rest well.",
+    
+    "Yep, I’m done here. Goodnight.",
+    "That’s enough existence for today.",
+    "Logging off before things get weird."
+]
 
 def load_config(path: str = "config.yaml") -> dict:
     """Load YAML configuration."""
     p = Path(path)
     if not p.exists():
-        print(f"  [WARN] Config not found at {path}, using defaults.")
+        print_warning(f"Config not found at {path}, using defaults.")
         return {}
     with open(p, "r", encoding="utf-8") as f:
         return yaml.safe_load(f) or {}
@@ -50,10 +83,10 @@ def load_config(path: str = "config.yaml") -> dict:
 
 def go_dark(listener, transcriber, speaker, llm, reminder_skill, timer_skill):
     """Kill switch: shut everything down, free GPU."""
-    print("\n  [*] Going dark...")
+    print_system("\n[*] Going dark...")
 
     # Announce
-    speaker.speak_sync("Going dark. Goodnight.")
+    speaker.speak_sync(random.choice(SIGN_OFFS))
 
     # Stop components
     listener.stop()
@@ -68,12 +101,12 @@ def go_dark(listener, transcriber, speaker, llm, reminder_skill, timer_skill):
     if reminder_skill:
         reminder_skill.stop_polling()
 
-    print("  [OFFLINE] Friday is offline. Press Enter to reboot or Ctrl+C to exit.")
+    print_system("[OFFLINE] Friday is offline. Press Enter to reboot or Ctrl+C to exit.")
 
 
 def boot(config: dict):
     """Initialise all components and return them."""
-    print("  [BOOT] Booting components...")
+    print_system("[BOOT] Booting components...")
 
     # ── Listener (mic + VAD)
     vad_cfg = config.get("vad", {})
@@ -102,6 +135,7 @@ def boot(config: dict):
         model=llm_cfg.get("model", "gemma4:e4b"),
         host=llm_cfg.get("host", "http://localhost:11434"),
         temperature=llm_cfg.get("temperature", 0.7),
+        num_predict=llm_cfg.get("num_predict", 200),
         owner_card_path=str(Path("data") / "owner_card.yaml"),
     )
 
@@ -118,8 +152,13 @@ def boot(config: dict):
         speaker=speaker, config=config, llm=llm, data_dir="data"
     )
 
-    # Inject skill docs into LLM
-    llm.set_skill_docs(get_skill_docs(skill_registry))
+    # Inject Ollama tool definitions into LLM
+    llm.set_tools(get_ollama_tools(skill_registry))
+
+    # Wire up audio ducking: speaker ↔ music skill
+    music_skill = skill_registry.get("music")
+    if music_skill:
+        speaker.set_music_skill(music_skill)
 
     # ── Orchestrator
     orchestrator = Orchestrator(
@@ -132,6 +171,25 @@ def boot(config: dict):
     return listener, transcriber, memory, llm, speaker, skill_registry, orchestrator
 
 
+def audio_worker(listener, msg_queue):
+    while listener._running:
+        audio = listener.listen()
+        if audio is not None:
+            msg_queue.put(("audio", audio))
+
+def text_worker(msg_queue):
+    while True:
+        try:
+            text = sys.stdin.readline()
+            if not text:
+                break
+            
+            if text.strip():
+                msg_queue.put(("text", text.strip()))
+        except (KeyboardInterrupt, EOFError):
+            msg_queue.put(("system", "quit"))
+            break
+
 def main_loop(config: dict):
     """The main Friday event loop."""
     listener, transcriber, memory, llm, speaker, skills, orchestrator = boot(config)
@@ -143,72 +201,120 @@ def main_loop(config: dict):
     timer_skill = skills.get("timer")
     if reminder_skill:
         reminder_skill.start_polling()
+        
+    msg_queue = queue.Queue()
+    
+    a_thread = threading.Thread(target=audio_worker, args=(listener, msg_queue), daemon=True)
+    t_thread = threading.Thread(target=text_worker, args=(msg_queue,), daemon=True)
+    a_thread.start()
+    t_thread.start()
 
-    print("  [MIC] Listening... (say a wake word to begin)")
-    print("  [TIP] Type 'quit' to exit\n")
+    print_system("[MIC] Listening... (say a wake word to begin)")
+    print_system("[TIP] Type 'quit' to exit\n")
+
+    # Proactive greeting
+    print_system("[BOOT] Generating startup greeting (checking reminders and news)...")
+    boot_prompt = """
+    System has just booted up.
+
+    Your task:
+    1. Greet the user briefly and politely (1 sentence max).
+    2. Check the "reminder" skill for pending to-dos and summarize them in 1 short sentence.
+    3. Use the "web_search" skill to find ONE current interesting news item and summarize it in 1 short sentence.
+
+    Rules:
+    - Do NOT invent a name, identity, or location.
+    - Do NOT add extra personality or backstory.
+    - Keep the total response under 4 sentences.
+    - Be concise and neutral-friendly in tone.
+
+    Output format:
+    Greeting sentence.
+
+    Reminders: <summary or "No pending reminders.">
+
+    News: <1-line summary of a current news item>
+    """
+    response, should_speak = orchestrator.handle(boot_prompt, memory.get_history())
+    memory.add("assistant", response)
+    print_friday(response)
+    if should_speak:
+        speaker.speak(response)
 
     try:
         while True:
-            # Listen for speech
-            audio = listener.listen()
-            if audio is None:
+            try:
+                msg_type, payload = msg_queue.get(timeout=0.1)
+            except queue.Empty:
                 continue
 
-            # Process through transcriber (wake-word gating)
-            result = transcriber.process(audio)
-            msg_type = result["type"]
-            text = result["text"]
-
-            if msg_type == "ignored":
-                continue
-
-            if msg_type == "go_dark":
-                go_dark(listener, transcriber, speaker, llm,
-                        reminder_skill, timer_skill)
-                # Wait for reboot or exit
-                try:
-                    input()
-                    print("  [REBOOT] Rebooting Friday...")
-                    memory.clear()
-                    return True  # signal to reboot
-                except (KeyboardInterrupt, EOFError):
-                    return False
-
-            if msg_type == "wake":
-                print("  [ACTIVE] Yes?")
-                speaker.speak("Yes?")
-                continue
-
-            if msg_type == "command":
-                print(f"  [YOU] {text}")
-
-                # Add to memory and send to LLM
-                memory.add("user", text)
-                llm_output = llm.chat(memory.get_history(), text)
-                print(f"  [LLM] {llm_output}")
-
-                # Orchestrate (dispatch skills or speak plain text)
-                response = orchestrator.handle(llm_output)
+            if msg_type == "system" and payload == "quit":
+                raise KeyboardInterrupt
+                
+            if msg_type == "text":
+                if payload.lower() in ["quit", "exit", "go dark", "shut down", "kill switch"]:
+                    raise KeyboardInterrupt
+                
+                print_user(payload)
+                memory.add("user", payload)
+                response, should_speak = orchestrator.handle(payload, memory.get_history())
                 memory.add("assistant", response)
-                print(f"  [FRIDAY] {response}")
-                speaker.speak(response)
+                print_friday(response)
+                
+                if should_speak:
+                    speaker.speak(response)
+                continue
+
+            if msg_type == "audio":
+                result = transcriber.process(payload)
+                v_type = result["type"]
+                text = result["text"]
+
+                if v_type == "ignored":
+                    continue
+
+                if v_type == "go_dark":
+                    go_dark(listener, transcriber, speaker, llm,
+                            reminder_skill, timer_skill)
+                    try:
+                        input()
+                        print_system("[REBOOT] Rebooting Friday...")
+                        memory.clear()
+                        return True  # signal to reboot
+                    except (KeyboardInterrupt, EOFError):
+                        return False
+
+                if v_type == "wake":
+                    print_system("[ACTIVE] Yes?")
+                    speaker.speak("Yes?")
+                    continue
+
+                if v_type == "command":
+                    print_user(text)
+                    memory.add("user", text)
+                    response, should_speak = orchestrator.handle(text, memory.get_history())
+                    memory.add("assistant", response)
+                    print_friday(response)
+
+                    if should_speak:
+                        speaker.speak(response)
 
     except KeyboardInterrupt:
-        print("\n  [EXIT] Shutting down...")
+        print_system("\n[EXIT] Shutting down...")
         go_dark(listener, transcriber, speaker, llm,
                 reminder_skill, timer_skill)
         return False
 
 
 def main():
-    print(BANNER)
+    console.print(BANNER, style="bold cyan")
     config = load_config()
 
     reboot = True
     while reboot:
         reboot = main_loop(config)
 
-    print("  Goodbye!")
+    print_system("Goodbye!")
     sys.exit(0)
 
 

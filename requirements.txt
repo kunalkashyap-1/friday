@@ -27,8 +27,17 @@ opencv-python
 pycaw
 comtypes
 
+# ── Web Search ──
+ddgs
+
 # ── Config ──
 pyyaml
 
 # ── Core ──
 torch
+rich
+
+# ── New Skills ──
+pyperclip
+Pillow
+icalendar

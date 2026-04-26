@@ -11,8 +11,19 @@ class CameraSkill(BaseSkill):
     name = "camera"
     description = "Capture a photo from the webcam and describe what's visible using vision AI."
     schema = {
-        "command": {"type": "string", "enum": ["look"]},
-        "question": {"type": "string", "description": "What to ask about the image."}
+        "type": "object",
+        "properties": {
+            "command": {
+                "type": "string",
+                "enum": ["look"],
+                "description": "Camera action.",
+            },
+            "question": {
+                "type": "string",
+                "description": "What to ask about the image.",
+            },
+        },
+        "required": ["command"],
     }
 
     def __init__(self, llm=None, device_index: int = 0):

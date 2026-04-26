@@ -2,13 +2,16 @@
 skills/__init__.py — Auto-discovery skill registry.
 
 Imports all skill modules, finds BaseSkill subclasses, instantiates them,
-and exposes SKILL_REGISTRY + combined docs for the LLM prompt.
+and exposes SKILL_REGISTRY + combined Ollama tool definitions.
 """
 
 from skills.base import BaseSkill
 
 # Import all skill modules so their classes get registered
-from skills import clock, timer, reminder, dice, camera, volume
+from skills import (
+    clock, timer, reminder, dice, camera, volume, web_search,
+    system_control, launcher, clipboard, journal, calendar, pomodoro
+)
 from skills.music import MusicSkill
 
 
@@ -54,12 +57,34 @@ def build_registry(**kwargs) -> dict[str, BaseSkill]:
         default_backend=music_cfg.get("default_backend", "vlc"),
     )
 
+    # Web Search
+    ws_cfg = config.get("web_search", {})
+    registry["web_search"] = web_search.WebSearchSkill(
+        max_results=ws_cfg.get("max_results", 3),
+    )
+
+    # System Control
+    registry["system_control"] = system_control.SystemControlSkill(data_dir=data_dir)
+
+    # Launcher
+    apps_cfg = config.get("apps", {})
+    registry["launcher"] = launcher.LauncherSkill(apps_config=apps_cfg)
+
+    # Clipboard
+    registry["clipboard"] = clipboard.ClipboardSkill()
+
+    # Journal
+    registry["journal"] = journal.JournalSkill(data_dir=data_dir)
+
+    # Calendar
+    registry["calendar"] = calendar.CalendarSkill(data_dir=data_dir)
+
+    # Pomodoro
+    registry["pomodoro"] = pomodoro.PomodoroSkill(speaker=speaker)
+
     return registry
 
 
-def get_skill_docs(registry: dict[str, BaseSkill]) -> str:
-    """Generate combined skill documentation for the LLM system prompt."""
-    docs = []
-    for skill in registry.values():
-        docs.append(skill.get_doc())
-    return "\n\n".join(docs)
+def get_ollama_tools(registry: dict[str, BaseSkill]) -> list[dict]:
+    """Build the list of Ollama tool definitions from the skill registry."""
+    return [skill.to_ollama_tool() for skill in registry.values()]

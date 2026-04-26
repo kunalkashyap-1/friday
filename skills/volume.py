@@ -3,15 +3,31 @@ skills/volume.py — System volume control via pycaw (Windows).
 """
 
 from skills.base import BaseSkill
+from ui import print_error
 
 
 class VolumeSkill(BaseSkill):
     name = "volume"
     description = "Control system volume: set, up, down, mute, unmute, get."
+    silent = True  # No TTS reply for volume changes
     schema = {
-        "command": {"type": "string", "enum": ["set", "up", "down", "mute", "unmute", "get"]},
-        "level": {"type": "integer", "description": "Volume level 0-100 (for 'set')."},
-        "step": {"type": "integer", "description": "Step amount (for 'up'/'down'). Default: 10."}
+        "type": "object",
+        "properties": {
+            "command": {
+                "type": "string",
+                "enum": ["set", "up", "down", "mute", "unmute", "get"],
+                "description": "Volume action to perform.",
+            },
+            "level": {
+                "type": "integer",
+                "description": "Volume level 0-100 (for 'set').",
+            },
+            "step": {
+                "type": "integer",
+                "description": "Step amount (for 'up'/'down'). Default: 10.",
+            },
+        },
+        "required": ["command"],
     }
 
     def __init__(self):
@@ -24,7 +40,7 @@ class VolumeSkill(BaseSkill):
             device = AudioUtilities.GetSpeakers()
             self._vol = device.EndpointVolume
         except Exception as e:
-            print(f"  [VOLUME] pycaw init failed: {e}")
+            print_error(f"VOLUME pycaw init failed: {e}")
 
     def _get_pct(self) -> int:
         if not self._vol:

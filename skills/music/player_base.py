@@ -41,6 +41,16 @@ class MusicPlayer(ABC):
         ...
 
     @abstractmethod
+    def get_volume(self) -> int:
+        """Return the current player volume (0-100)."""
+        ...
+
+    @abstractmethod
+    def is_playing(self) -> bool:
+        """Return True if audio is currently playing."""
+        ...
+
+    @abstractmethod
     def now_playing(self) -> str:
         """Return info about the currently playing track."""
         ...

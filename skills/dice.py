@@ -10,23 +10,27 @@ class DiceSkill(BaseSkill):
     name = "dice"
     description = "Roll dice, flip a coin, or pick a random number."
     schema = {
-        "type": {
-            "type": "string",
-            "enum": ["d4", "d6", "d8", "d10", "d12", "d20", "d100", "coin", "number"],
-            "description": "Type of roll. Use 'dN' for N-sided die, 'coin' for heads/tails, 'number' for a range."
+        "type": "object",
+        "properties": {
+            "type": {
+                "type": "string",
+                "enum": ["d4", "d6", "d8", "d10", "d12", "d20", "d100", "coin", "number"],
+                "description": "Type of roll. Use 'dN' for N-sided die, 'coin' for heads/tails, 'number' for a range.",
+            },
+            "min": {
+                "type": "integer",
+                "description": "Minimum value (only for type='number'). Default: 1.",
+            },
+            "max": {
+                "type": "integer",
+                "description": "Maximum value (only for type='number'). Default: 100.",
+            },
+            "count": {
+                "type": "integer",
+                "description": "Number of dice to roll. Default: 1.",
+            },
         },
-        "min": {
-            "type": "integer",
-            "description": "Minimum value (only for type='number'). Default: 1."
-        },
-        "max": {
-            "type": "integer",
-            "description": "Maximum value (only for type='number'). Default: 100."
-        },
-        "count": {
-            "type": "integer",
-            "description": "Number of dice to roll. Default: 1."
-        }
+        "required": ["type"],
     }
 
     def execute(self, params: dict) -> str:

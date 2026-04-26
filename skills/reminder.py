@@ -11,29 +11,34 @@ import threading
 import datetime
 from pathlib import Path
 from skills.base import BaseSkill
+from ui import print_system, print_error
 
 
 class ReminderSkill(BaseSkill):
     name = "reminder"
     description = "Set a reminder for a specific time. I'll announce it via TTS when it's due."
     schema = {
-        "time": {
-            "type": "string",
-            "description": "Time in HH:MM (24h) format."
+        "type": "object",
+        "properties": {
+            "time": {
+                "type": "string",
+                "description": "Time in HH:MM (24h) format.",
+            },
+            "message": {
+                "type": "string",
+                "description": "What to remind about.",
+            },
+            "command": {
+                "type": "string",
+                "enum": ["set", "list", "cancel"],
+                "description": "Action: 'set' (default), 'list', or 'cancel'.",
+            },
+            "id": {
+                "type": "string",
+                "description": "Reminder ID (for cancel).",
+            },
         },
-        "message": {
-            "type": "string",
-            "description": "What to remind about."
-        },
-        "command": {
-            "type": "string",
-            "enum": ["set", "list", "cancel"],
-            "description": "Action: 'set' (default), 'list', or 'cancel'."
-        },
-        "id": {
-            "type": "string",
-            "description": "Reminder ID (for cancel)."
-        }
+        "required": ["command"],
     }
 
     def __init__(self, speaker=None, data_dir: str = "data"):
@@ -141,7 +146,7 @@ class ReminderSkill(BaseSkill):
             try:
                 self._check_due()
             except Exception as e:
-                print(f"  [REMINDER ERROR] {e}")
+                print_error(f"REMINDER ERROR: {e}")
             _time.sleep(60)
 
     def _check_due(self):
@@ -160,7 +165,7 @@ class ReminderSkill(BaseSkill):
                 r["delivered"] = True
                 changed = True
                 msg = f"Reminder: {r['message']}"
-                print(f"  [REMINDER] {msg}")
+                print_system(f"[REMINDER] {msg}")
                 if self._speaker:
                     self._speaker.speak(msg)
 
